@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Beyond Logic · Recursive File Grep</title>
+    <style>
+        :root {
+            --bg-color: #0d1117; --panel-bg: #161b22; --accent: #238636;
+            --text-color: #c9d1d9; --border: #30363d; --blue: #58a6ff;
+            --glow-blue: 0 0 8px #58a6ff;
+        }
+        body {
+            margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif;
+            background: var(--bg-color); color: var(--text-color);
+            display: flex; flex-direction: column; height: 100vh;
+        }
+        nav {
+            background: #010409; padding: 12px 20px;
+            display: flex; gap: 12px; align-items: center;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+        button, .file-btn {
+            background: var(--panel-bg); color: var(--text-color);
+            border: 1px solid var(--border); padding: 8px 16px;
+            border-radius: 8px; cursor: pointer; font-weight: bold;
+            transition: 0.2s;
+        }
+        button:hover, .file-btn:hover {
+            border-color: var(--blue); box-shadow: var(--glow-blue);
+        }
+        button.primary {
+            background: var(--accent); border-color: var(--accent);
+        }
+        .search-area {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-color);
+        }
+        .query-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        input, select, textarea {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            color: var(--text-color);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        input[type="text"], textarea {
+            flex: 1;
+            min-width: 200px;
+        }
+        .mode-buttons {
+            display: flex;
+            gap: 8px;
+            background: #010409;
+            padding: 4px;
+            border-radius: 12px;
+        }
+        .mode-btn {
+            padding: 6px 14px;
+            border-radius: 8px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+        }
+        .mode-btn.active {
+            background: var(--blue);
+            color: #010409;
+        }
+        .results-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        .result-file {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            margin-bottom: 16px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        .file-header {
+            background: #21262d;
+            padding: 12px 16px;
+            font-weight: bold;
+            font-family: monospace;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+        .file-header:hover { background: #2d3748; }
+        .matches {
+            padding: 8px 0;
+        }
+        .match {
+            padding: 8px 16px;
+            font-family: monospace;
+            font-size: 12px;
+            border-bottom: 1px solid var(--border);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .match:hover { background: #1f242e; }
+        .line-nr {
+            color: var(--blue);
+            display: inline-block;
+            min-width: 50px;
+        }
+        .match-highlight {
+            background: #f0883e;
+            color: #0d1117;
+            font-weight: bold;
+            border-radius: 4px;
+            padding: 0 2px;
+        }
+        .status {
+            padding: 8px 20px;
+            font-size: 12px;
+            color: #8b949e;
+        }
+        .stats {
+            margin-left: auto;
+            font-size: 12px;
+            background: #0d1117;
+            padding: 2px 10px;
+            border-radius: 20px;
+        }
+        #log-area {
+            height: 100px;
+            margin: 0 20px 20px;
+            background: #010409;
+            border-radius: 8px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 11px;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+        }
+        .context {
+            color: #8b949e;
+            margin-left: 40px;
+        }
+        hr { border-color: var(--border); }
+    </style>
+</head>
+<body>
+
+<nav>
+    <span style="font-weight:bold;">🔍 Recursive File Grep</span>
+    <div style="flex:1"></div>
+    <button id="pickFolderBtn">📁 Verzeichnis auswählen</button>
+    <button id="pickFilesBtn">📄 Datei(en) auswählen</button>
+    <button id="exportBtn">💾 Export (JSON)</button>
+    <button id="clearBtn">🗑 Zurücksetzen</button>
+    <button class="nav-btn" onclick="window.location.href='Suite_index.html'" style="border-color: var(--blue);">🏠 Zur Zentrale</button>
+</nav>
+
+<div class="search-area">
+    <div class="query-row">
+        <span>🔎 Suchmuster:</span>
+        <input type="text" id="patternInput" placeholder="wort1 wort2 ... oder regex" style="flex:2;">
+        <div class="mode-buttons">
+            <button class="mode-btn" data-mode="word">Wörter (UND)</button>
+            <button class="mode-btn" data-mode="any">Wörter (ODER)</button>
+            <button class="mode-btn" data-mode="regex">Regulärer Ausdruck</button>
+            <button class="mode-btn" data-mode="exact">Exakter String</button>
+        </div>
+        <button id="searchBtn" class="primary">🔍 Suchen</button>
+    </div>
+    <div class="query-row">
+        <span>📁 Filter (glob):</span>
+        <input type="text" id="extFilter" placeholder="*.py, *.js, *.txt, *.json" value="*">
+        <span>📏 max. Datei (MB):</span>
+        <input type="number" id="maxSize" value="10" step="1" style="width:70px;">
+        <label style="margin-left:auto;">
+            <input type="checkbox" id="caseSensitive"> Groß-/Kleinschreibung
+        </label>
+    </div>
+</div>
+
+<div id="resultsContainer" class="results-container">
+    <div class="status">📂 Kein Verzeichnis ausgewählt. Klicke auf "Verzeichnis auswählen" und dann Suchen.</div>
+</div>
+<div id="log-area">--- File Grep bereit ---</div>
+
+<script>
+    // DOM elements
+    const patternInput = document.getElementById('patternInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const pickFolderBtn = document.getElementById('pickFolderBtn');
+    const pickFilesBtn = document.getElementById('pickFilesBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const logArea = document.getElementById('log-area');
+    const extFilter = document.getElementById('extFilter');
+    const maxSizeInput = document.getElementById('maxSize');
+    const caseSensitiveCheck = document.getElementById('caseSensitive');
+    
+    let currentMode = 'word'; // word, any, regex, exact
+    let currentFiles = [];     // gespeicherte Dateien {name, content, path?}
+    let lastSearchResults = []; // zum exportieren
+    let currentDirectoryHandle = null;
+    
+    // Mode buttons
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentMode = btn.dataset.mode;
+            addLog(`Modus gewechselt: ${btn.innerText}`);
+        });
+    });
+    // Default aktiv: Wort (UND)
+    document.querySelector('.mode-btn[data-mode="word"]').classList.add('active');
+    
+    function addLog(msg) {
+        const time = new Date().toLocaleTimeString('de-DE');
+        const div = document.createElement('div');
+        div.innerHTML = `<span style="color:#58a6ff;">[${time}]</span> ${escapeHtml(msg)}`;
+        logArea.appendChild(div);
+        logArea.scrollTop = logArea.scrollHeight;
+        while(logArea.children.length > 500) logArea.removeChild(logArea.firstChild);
+    }
+    
+    function escapeHtml(str) {
+        return str.replace(/[&<>]/g, function(m) {
+            if(m === '&') return '&amp;';
+            if(m === '<') return '&lt;';
+            if(m === '>') return '&gt;';
+            return m;
+        }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, c => c);
+    }
+    
+    // glob matching (einfach)
+    function matchesGlob(filename, pattern) {
+        if (pattern === '*' || pattern === '*.*') return true;
+        const regexPattern = pattern
+            .replace(/\./g, '\\.')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.');
+        const re = new RegExp('^' + regexPattern + '$', 'i');
+        return re.test(filename);
+    }
+    
+    // Prüfen ob Datei anhand extension gefiltert wird (Unterstützung für *.py,*.js)
+    function shouldIncludeFile(filename) {
+        let filter = extFilter.value.trim();
+        if (!filter || filter === '*') return true;
+        const patterns = filter.split(',').map(p => p.trim());
+        for (let pat of patterns) {
+            if (matchesGlob(filename, pat)) return true;
+        }
+        return false;
+    }
+    
+    // Suchlogik pro Datei
+    async function searchInFile(filename, content) {
+        let pattern = patternInput.value.trim();
+        if (!pattern) return [];
+        
+        const lines = content.split(/\r?\n/);
+        const matches = [];
+        const caseSensitive = caseSensitiveCheck.checked;
+        
+        let testFn;
+        if (currentMode === 'regex') {
+            try {
+                const flags = caseSensitive ? 'g' : 'gi';
+                const regex = new RegExp(pattern, flags);
+                testFn = (line) => regex.test(line);
+            } catch(e) { addLog(`Regex Fehler: ${e.message}`); return []; }
+        } 
+        else if (currentMode === 'exact') {
+            const searchStr = caseSensitive ? pattern : pattern.toLowerCase();
+            testFn = (line) => {
+                const l = caseSensitive ? line : line.toLowerCase();
+                return l.includes(searchStr);
+            };
+        }
+        else if (currentMode === 'word') {
+            const words = pattern.split(/\s+/).filter(w => w.length > 0);
+            if (words.length === 0) return [];
+            testFn = (line) => {
+                const l = caseSensitive ? line : line.toLowerCase();
+                const lowerWords = caseSensitive ? words : words.map(w => w.toLowerCase());
+                return lowerWords.every(word => l.includes(word));
+            };
+        }
+        else { // any mode (ODER)
+            const words = pattern.split(/\s+/).filter(w => w.length > 0);
+            if (words.length === 0) return [];
+            testFn = (line) => {
+                const l = caseSensitive ? line : line.toLowerCase();
+                const lowerWords = caseSensitive ? words : words.map(w => w.toLowerCase());
+                return lowerWords.some(word => l.includes(word));
+            };
+        }
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (testFn(line)) {
+                let context = line.substring(0, 200);
+                if (line.length > 200) context += '...';
+                matches.push({
+                    lineNum: i+1,
+                    text: line,
+                    contextPreview: context
+                });
+            }
+        }
+        return matches;
+    }
+    
+    async function scanDirectory(dirHandle, relativePath = '') {
+        const files = [];
+        for await (const entry of dirHandle.values()) {
+            if (entry.kind === 'file') {
+                const filename = entry.name;
+                if (!shouldIncludeFile(filename)) continue;
+                const file = await entry.getFile();
+                const sizeMB = file.size / (1024*1024);
+                const maxMB = parseFloat(maxSizeInput.value) || 10;
+                if (sizeMB > maxMB) {
+                    addLog(`Überspringe große Datei: ${relativePath}${filename} (${sizeMB.toFixed(1)} MB)`);
+                    continue;
+                }
+                const content = await file.text();
+                files.push({
+                    name: relativePath + filename,
+                    path: relativePath,
+                    content: content,
+                    size: file.size
+                });
+            } else if (entry.kind === 'directory') {
+                const subFiles = await scanDirectory(entry, relativePath + entry.name + '/');
+                files.push(...subFiles);
+            }
+        }
+        return files;
+    }
+    
+    async function loadFilesFromDirectory() {
+        try {
+            const dirHandle = await window.showDirectoryPicker();
+            currentDirectoryHandle = dirHandle;
+            addLog(`📁 Verzeichnis ausgewählt: ${dirHandle.name}`);
+            resultsContainer.innerHTML = '<div class="status">📂 Scanne Verzeichnis, bitte warten...</div>';
+            currentFiles = await scanDirectory(dirHandle, '');
+            addLog(`📄 ${currentFiles.length} Dateien gefunden (nach Filter *.${extFilter.value})`);
+            return true;
+        } catch(e) {
+            addLog(`Fehler beim Verzeichniszugriff: ${e.message}`);
+            return false;
+        }
+    }
+    
+    async function loadFilesFromPick() {
+        return new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.multiple = true;
+            input.onchange = async (e) => {
+                const fileList = Array.from(e.target.files);
+                const files = [];
+                for (const file of fileList) {
+                    if (!shouldIncludeFile(file.name)) continue;
+                    const sizeMB = file.size / (1024*1024);
+                    const maxMB = parseFloat(maxSizeInput.value) || 10;
+                    if (sizeMB > maxMB) {
+                        addLog(`Überspringe ${file.name} (${sizeMB.toFixed(1)} MB)`);
+                        continue;
+                    }
+                    const content = await file.text();
+                    files.push({
+                        name: file.name,
+                        path: '',
+                        content: content,
+                        size: file.size
+                    });
+                }
+                currentFiles = files;
+                addLog(`📄 ${currentFiles.length} Datei(en) geladen.`);
+                resolve(true);
+            };
+            input.click();
+        });
+    }
+    
+    async function performSearch() {
+        if (currentFiles.length === 0) {
+            addLog("⚠️ Keine Dateien geladen. Bitte zuerst ein Verzeichnis oder Dateien auswählen.");
+            resultsContainer.innerHTML = '<div class="status">⚠️ Keine Dateien geladen. Wähle ein Verzeichnis oder Dateien.</div>';
+            return;
+        }
+        
+        const pattern = patternInput.value.trim();
+        if (!pattern) {
+            addLog("⚠️ Bitte Suchmuster eingeben.");
+            return;
+        }
+        
+        addLog(`🔎 Suche starten: "${pattern}" (Modus: ${currentMode}) in ${currentFiles.length} Dateien...`);
+        resultsContainer.innerHTML = '<div class="status">⏳ Durchsuche Dateien...</div>';
+        
+        const allResults = [];
+        let totalMatches = 0;
+        
+        for (const file of currentFiles) {
+            const matches = await searchInFile(file.name, file.content);
+            if (matches.length > 0) {
+                allResults.push({
+                    filename: file.name,
+                    matches: matches
+                });
+                totalMatches += matches.length;
+            }
+        }
+        
+        lastSearchResults = allResults;
+        displayResults(allResults);
+        addLog(`✅ Suche abgeschlossen. ${totalMatches} Treffer in ${allResults.length} Dateien.`);
+    }
+    
+    function displayResults(results) {
+        if (results.length === 0) {
+            resultsContainer.innerHTML = '<div class="status">🔍 Keine Treffer gefunden.</div>';
+            return;
+        }
+        resultsContainer.innerHTML = '';
+        for (const res of results) {
+            const fileDiv = document.createElement('div');
+            fileDiv.className = 'result-file';
+            const header = document.createElement('div');
+            header.className = 'file-header';
+            header.innerHTML = `<span>📄 ${escapeHtml(res.filename)}</span><span class="stats">${res.matches.length} Treffer</span>`;
+            const matchesDiv = document.createElement('div');
+            matchesDiv.className = 'matches';
+            matchesDiv.style.display = 'none';
+            let collapsed = true;
+            header.onclick = () => {
+                collapsed = !collapsed;
+                matchesDiv.style.display = collapsed ? 'none' : 'block';
+            };
+            
+            for (const match of res.matches) {
+                const matchLine = document.createElement('div');
+                matchLine.className = 'match';
+                let highlightedText = escapeHtml(match.text);
+                // highlight pattern (einfache Hervorhebung)
+                let searchRaw = patternInput.value.trim();
+                if (searchRaw && (currentMode === 'word' || currentMode === 'any' || currentMode === 'exact')) {
+                    const words = searchRaw.split(/\s+/);
+                    for (let w of words) {
+                        const regexEscaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const flags = caseSensitiveCheck.checked ? 'g' : 'gi';
+                        try {
+                            const re = new RegExp(`(${regexEscaped})`, flags);
+                            highlightedText = highlightedText.replace(re, `<span class="match-highlight">$1</span>`);
+                        } catch(e) {}
+                    }
+                } else if (currentMode === 'regex' && searchRaw) {
+                    try {
+                        const flags = caseSensitiveCheck.checked ? 'g' : 'gi';
+                        const re = new RegExp(`(${searchRaw})`, flags);
+                        highlightedText = highlightedText.replace(re, `<span class="match-highlight">$1</span>`);
+                    } catch(e) {}
+                }
+                matchLine.innerHTML = `<span class="line-nr">${match.lineNum}:</span> ${highlightedText}`;
+                matchesDiv.appendChild(matchLine);
+            }
+            fileDiv.appendChild(header);
+            fileDiv.appendChild(matchesDiv);
+            resultsContainer.appendChild(fileDiv);
+        }
+    }
+    
+    function exportResults() {
+        if (lastSearchResults.length === 0) {
+            addLog("Keine Suchergebnisse zum Exportieren.");
+            return;
+        }
+        const exportData = {
+            timestamp: new Date().toISOString(),
+            mode: currentMode,
+            pattern: patternInput.value,
+            results: lastSearchResults
+        };
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `grep_results_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        addLog("Ergebnisse als JSON exportiert.");
+    }
+    
+    function clearAll() {
+        currentFiles = [];
+        lastSearchResults = [];
+        resultsContainer.innerHTML = '<div class="status">🗑 Zurückgesetzt. Wähle ein Verzeichnis oder Dateien.</div>';
+        addLog("Alle Daten zurückgesetzt.");
+    }
+    
+    // Event bindings
+    pickFolderBtn.addEventListener('click', async () => {
+        await loadFilesFromDirectory();
+    });
+    pickFilesBtn.addEventListener('click', async () => {
+        await loadFilesFromPick();
+    });
+    searchBtn.addEventListener('click', performSearch);
+    exportBtn.addEventListener('click', exportResults);
+    clearBtn.addEventListener('click', clearAll);
+    
+    addLog("Bereit. Wähle ein Verzeichnis oder einzelne Dateien, gib Suchbegriffe ein (z.B. 'error config' als UND) und starte die Suche.");
+</script>
+</body>
+</html>

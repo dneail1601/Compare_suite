@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Beyond Logic Pro · Smart Diff & Merge</title>
+    <style>
+        :root {
+            --bg-color: #0d1117; --panel-bg: #161b22; --accent: #238636;
+            --text-color: #c9d1d9; --border: #30363d; --blue: #58a6ff;
+            --diff-red: rgba(244, 67, 54, 0.25); --diff-green: rgba(76, 175, 80, 0.25);
+            --diff-red-solid: rgba(244, 67, 54, 0.8); --diff-green-solid: rgba(76, 175, 80, 0.8);
+            --glow-blue: 0 0 6px #58a6ff;
+        }
+
+        body {
+            margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif;
+            background-color: var(--bg-color); color: var(--text-color);
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+        }
+
+        nav {
+            background-color: #010409; padding: 12px 20px;
+            display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--border);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 20;
+            flex-wrap: wrap;
+        }
+
+        .separator { width: 1px; height: 20px; background: var(--border); margin: 0 8px; }
+
+        button.nav-btn {
+            background-color: var(--panel-bg); color: var(--text-color); border: 1px solid var(--border); 
+            padding: 7px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;
+            transition: 0.2s;
+        }
+        button.nav-btn:hover { border-color: var(--blue); color: #fff; box-shadow: var(--glow-blue); }
+        button.nav-btn.action { background-color: var(--accent); border-color: var(--accent); color: white; }
+        button.nav-btn.action:hover { background-color: #2ea043; }
+        button.nav-btn.warning { background-color: #da3633; border-color: #da3633; color: white; }
+        button.nav-btn.warning:hover { background-color: #f85149; }
+        button.nav-btn.report { background-color: var(--blue); border-color: var(--blue); color: #0d1117; }
+        button.nav-btn.report:hover { background-color: #79c0ff; }
+
+        #workspace { display: flex; flex: 1; position: relative; padding: 20px; gap: 40px; }
+
+        .editor-container {
+            flex: 1; display: flex; flex-direction: column;
+            background: var(--panel-bg); border-radius: 10px;
+            border: 1px solid var(--blue); box-shadow: 0 0 8px #58a6ff;
+            overflow: hidden;
+        }
+
+        .header {
+            background: #21262d; padding: 8px 15px; font-size: 12px; font-weight: bold;
+            color: #8b949e; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .header button { padding: 4px 10px; font-size: 11px; }
+
+        textarea {
+            flex: 1; background: transparent; color: #fff;
+            border: none; padding: 15px; margin: 0;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 14px;
+            line-height: 20px; resize: none; outline: none; white-space: pre;
+            overflow-y: scroll;
+            background-color: rgba(13, 17, 23, 0.7);
+        }
+
+        textarea::-webkit-scrollbar, #log-area::-webkit-scrollbar { width: 12px; height: 12px; }
+        textarea::-webkit-scrollbar-track, #log-area::-webkit-scrollbar-track { background: var(--bg-color); }
+        textarea::-webkit-scrollbar-thumb, #log-area::-webkit-scrollbar-thumb { background: #424242; border-radius: 6px; }
+        textarea::-webkit-scrollbar-thumb:hover, #log-area::-webkit-scrollbar-thumb:hover { background: #666; }
+
+        #log-area {
+            height: 160px; margin: 0 20px 20px; background: #010409; color: #3fb950;
+            padding: 10px 15px; border-radius: 8px; font-family: 'Consolas', monospace;
+            overflow-y: auto; font-size: 12px; border: 1px solid var(--border);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        #log-area div {
+            border-bottom: 1px solid #21262d;
+            padding: 6px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+
+        #canvas-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+        #button-layer { position: absolute; top: 0; left: 50%; width: 40px; height: 100%; transform: translateX(-50%); pointer-events: none; z-index: 10; }
+
+        .merge-btns { position: absolute; width: 100%; display: flex; flex-direction: column; gap: 4px; transform: translateY(-50%); pointer-events: auto; }
+        .merge-btns button {
+            background: #21262d; border: 1px solid var(--border); color: #c9d1d9; border-radius: 4px; 
+            cursor: pointer; font-size: 12px; padding: 4px 0; display: block; width: 100%; transition: 0.1s; font-weight: bold;
+        }
+        .merge-btns button:hover { border-color: var(--blue); color: var(--blue); transform: scale(1.1); background: #0d1117; }
+        
+        #hover-tooltip {
+            position: absolute; display: none; background: #161b22; border: 1px solid var(--blue); color: #c9d1d9;
+            padding: 12px; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+            font-family: 'Consolas', monospace; font-size: 12px;
+            white-space: pre; z-index: 1000; pointer-events: none;
+            max-width: 550px; max-height: 300px; overflow: auto;
+        }
+        
+        .file-badge {
+            background: #23863630;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <button class="nav-btn" onclick="document.getElementById('fileA').click()">📁 Datei A laden</button>
+        <button class="nav-btn" onclick="document.getElementById('fileB').click()">📁 Datei B laden</button>
+        <input type="file" id="fileA" style="display:none" onchange="loadFile(event, 'leftText', 'A')">
+        <input type="file" id="fileB" style="display:none" onchange="loadFile(event, 'rightText', 'B')">
+        
+        <div class="separator"></div>
+        
+        <button class="nav-btn action" onclick="analyzeAndRender()">↻ Refresh</button>
+        <button class="nav-btn warning" onclick="undo()" id="btn-undo" disabled>↶ Rückgängig</button>
+
+        <div class="separator"></div>
+        
+        <button class="nav-btn" onclick="jumpToDiff(-1)">▲ Vorherige</button>
+        <button class="nav-btn" onclick="jumpToDiff(1)">▼ Nächste</button>
+        <span id="diff-counter" style="font-size: 12px; color: #8b949e; margin-left: 5px; width: 80px;">0 / 0 Diff(s)</span>
+
+        <div style="flex:1"></div>
+        <button class="nav-btn" onclick="window.location.href='Suite_index.html'" style="border-color: var(--blue);">🏠 Zur Zentrale</button>
+        <button class="nav-btn report" onclick="copyLog()">📋 Report kopieren</button>
+    </nav>
+
+    <div id="workspace">
+        <canvas id="canvas-layer"></canvas>
+        <div id="button-layer"></div>
+
+        <div class="editor-container" id="left-box">
+            <div class="header">
+                <span>📄 <span id="leftHeaderName">Datei A</span> <span id="leftFileName" class="file-badge"></span></span>
+                <button class="nav-btn" onclick="saveFile('left')">💾 Speichern</button>
+            </div>
+            <textarea id="leftText" wrap="off"></textarea>
+        </div>
+        
+        <div class="editor-container" id="right-box">
+            <div class="header">
+                <span>📄 <span id="rightHeaderName">Datei B</span> <span id="rightFileName" class="file-badge"></span></span>
+                <button class="nav-btn" onclick="saveFile('right')">💾 Speichern</button>
+            </div>
+            <textarea id="rightText" wrap="off"></textarea>
+        </div>
+    </div>
+
+    <div id="log-area">--- Beyond Logic Pro initialisiert ---</div>
+    <div id="hover-tooltip"></div>
+
+    <script>
+        const leftArea = document.getElementById('leftText');
+        const rightArea = document.getElementById('rightText');
+        const canvas = document.getElementById('canvas-layer');
+        const ctx = canvas.getContext('2d');
+        const workspace = document.getElementById('workspace');
+        const buttonLayer = document.getElementById('button-layer');
+        const tooltip = document.getElementById('hover-tooltip');
+        const undoBtn = document.getElementById('btn-undo');
+        const diffCounter = document.getElementById('diff-counter');
+        const logArea = document.getElementById('log-area');
+        const leftFileNameSpan = document.getElementById('leftFileName');
+        const rightFileNameSpan = document.getElementById('rightFileName');
+        const leftHeaderName = document.getElementById('leftHeaderName');
+        const rightHeaderName = document.getElementById('rightHeaderName');
+
+        const LINE_HEIGHT = 20; 
+        const PADDING_TOP = 15; 
+        let HEADER_HEIGHT = 0; 
+
+        let historyStack = [];
+        let globalGaps = [];
+        let currentGapIndex = -1;
+        
+        let leftOriginalFilename = null;
+        let rightOriginalFilename = null;
+        let leftOriginalContent = "";
+        let rightOriginalContent = "";
+        
+        function hasLeftChanged() { return leftArea.value !== leftOriginalContent; }
+        function hasRightChanged() { return rightArea.value !== rightOriginalContent; }
+
+        function getLeftDisplayName() { 
+            return leftOriginalFilename ? `"${leftOriginalFilename}"` : "(keine Datei geladen)"; 
+        }
+        function getRightDisplayName() { 
+            return rightOriginalFilename ? `"${rightOriginalFilename}"` : "(keine Datei geladen)"; 
+        }
+
+        function addLog(msg) {
+            const time = new Date().toLocaleTimeString('de-DE', { hour12: false });
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color:#58a6ff;">[${time}]</span> ${escapeHtml(msg)}`;
+            logArea.appendChild(logEntry);
+            logArea.scrollTop = logArea.scrollHeight;
+            while(logArea.children.length > 2000) logArea.removeChild(logArea.firstChild);
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&<>]/g, function(m) {
+                if(m === '&') return '&amp;';
+                if(m === '<') return '&lt;';
+                if(m === '>') return '&gt;';
+                return m;
+            });
+        }
+
+        function copyLog() {
+            let fullLogText = "";
+            for(let child of logArea.children) {
+                fullLogText += child.innerText + "\n";
+            }
+            navigator.clipboard.writeText(fullLogText);
+            addLog("Protokoll in Zwischenablage kopiert.");
+        }
+
+        function saveState() {
+            historyStack.push({ l: leftArea.value, r: rightArea.value });
+            if(historyStack.length > 50) historyStack.shift(); 
+            updateUndoButton();
+        }
+
+        function undo() {
+            if (historyStack.length > 0) {
+                const state = historyStack.pop();
+                leftArea.value = state.l; rightArea.value = state.r;
+                updateUndoButton(); 
+                addLog("Aktion rückgängig gemacht.");
+                analyzeAndRender();
+            }
+        }
+
+        function updateUndoButton() {
+            undoBtn.disabled = historyStack.length === 0;
+            undoBtn.innerText = `↶ Rückgängig (${historyStack.length})`;
+        }
+
+        function saveFile(side) {
+            const isLeft = side === 'left';
+            const content = isLeft ? leftArea.value : rightArea.value;
+            const originalName = isLeft ? leftOriginalFilename : rightOriginalFilename;
+            const hasChanged = isLeft ? hasLeftChanged() : hasRightChanged();
+            
+            let filename;
+            if (originalName && !hasChanged) {
+                filename = originalName;
+                addLog(`Gespeichert (unverändert): "${filename}"`);
+            } else if (originalName && hasChanged) {
+                const lastDot = originalName.lastIndexOf('.');
+                if (lastDot > 0) {
+                    filename = originalName.substring(0, lastDot) + '_edited' + originalName.substring(lastDot);
+                } else {
+                    filename = originalName + '_edited';
+                }
+                addLog(`Gespeichert (mit Änderungen): "${filename}" (Original war "${originalName}")`);
+            } else {
+                filename = isLeft ? 'dokument_A_edited.txt' : 'dokument_B_edited.txt';
+                addLog(`Gespeichert (neues Dokument): "${filename}"`);
+            }
+            
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a'); 
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a); 
+            a.click(); 
+            document.body.removeChild(a);
+        }
+
+        function loadFile(event, targetId, sideLabel) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                saveState();
+                const content = e.target.result;
+                document.getElementById(targetId).value = content;
+                
+                if (sideLabel === 'A') {
+                    leftOriginalFilename = file.name;
+                    leftOriginalContent = content;
+                    leftFileNameSpan.textContent = file.name;
+                    leftHeaderName.textContent = file.name;
+                    addLog(`Datei A geladen: "${file.name}" (${(file.size/1024).toFixed(2)} KB, ${content.split('\n').length} Zeilen)`);
+                } else {
+                    rightOriginalFilename = file.name;
+                    rightOriginalContent = content;
+                    rightFileNameSpan.textContent = file.name;
+                    rightHeaderName.textContent = file.name;
+                    addLog(`Datei B geladen: "${file.name}" (${(file.size/1024).toFixed(2)} KB, ${content.split('\n').length} Zeilen)`);
+                }
+                analyzeAndRender();
+            };
+            reader.readAsText(file, "UTF-8"); 
+            event.target.value = ''; 
+        }
+
+        function jumpToDiff(direction) {
+            if(globalGaps.length === 0) return;
+            currentGapIndex += direction;
+            if(currentGapIndex >= globalGaps.length) currentGapIndex = 0;
+            if(currentGapIndex < 0) currentGapIndex = globalGaps.length - 1;
+
+            const gap = globalGaps[currentGapIndex];
+            const targetLine = gap.leftStart; 
+            const targetY = (targetLine * LINE_HEIGHT) - (leftArea.clientHeight / 2) + (LINE_HEIGHT * 2);
+            leftArea.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+            
+            diffCounter.innerText = `${currentGapIndex + 1} / ${globalGaps.length} Diff(s)`;
+            addLog(`Navigiere zu Differenz ${currentGapIndex + 1} (Zeilen ${gap.leftStart+1}-${gap.leftEnd} vs ${gap.rightStart+1}-${gap.rightEnd})`);
+        }
+
+        const cyrb53 = (str, seed = 0) => {
+            let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+            for(let i = 0, ch; i < str.length; i++) {
+                ch = str.charCodeAt(i);
+                h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);
+            }
+            h1  = Math.imul(h1 ^ (h1 >>> 16), 2246822507); h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+            h2  = Math.imul(h2 ^ (h2 >>> 16), 2246822507); h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+            return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+        };
+
+        function showTooltip(e, textContent) {
+            tooltip.style.display = 'block';
+            let displayTxt = textContent.length > 0 ? textContent : '[Leerer Block]';
+            if(displayTxt.length > 3000) displayTxt = displayTxt.substring(0, 3000) + '\n[...]';
+            tooltip.textContent = displayTxt;
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (tooltip.style.display === 'block') {
+                tooltip.style.left = (e.pageX + 15) + 'px'; 
+                tooltip.style.top = (e.pageY + 15) + 'px';
+            }
+        });
+
+        function hideTooltip() { tooltip.style.display = 'none'; }
+
+        function executeMerge(direction, gap, leftLines, rightLines) {
+            saveState(); 
+            const leftName = getLeftDisplayName();
+            const rightName = getRightDisplayName();
+            
+            if (direction === 'L2R') {
+                let insertContent = leftLines.slice(gap.leftStart, gap.leftEnd);
+                const zeilen = insertContent.length;
+                rightLines.splice(gap.rightStart, gap.rightEnd - gap.rightStart, ...insertContent);
+                rightArea.value = rightLines.join('\n');
+                const inhalt = insertContent.join('\n');
+                addLog(`${zeilen} Zeilen von ${leftName} nach ${rightName} kopiert:\n${inhalt}`);
+            } else if (direction === 'R2L') {
+                let insertContent = rightLines.slice(gap.rightStart, gap.rightEnd);
+                const zeilen = insertContent.length;
+                leftLines.splice(gap.leftStart, gap.leftEnd - gap.leftStart, ...insertContent);
+                leftArea.value = leftLines.join('\n');
+                const inhalt = insertContent.join('\n');
+                addLog(`${zeilen} Zeilen von ${rightName} nach ${leftName} kopiert:\n${inhalt}`);
+            }
+            hideTooltip(); 
+            analyzeAndRender();
+        }
+
+        function analyzeAndRender() {
+            HEADER_HEIGHT = document.querySelector('.header').offsetHeight || 40;
+            const wsRect = workspace.getBoundingClientRect();
+            canvas.width = wsRect.width; canvas.height = wsRect.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            buttonLayer.innerHTML = ''; 
+
+            const leftLines = leftArea.value.split('\n');
+            const rightLines = rightArea.value.split('\n');
+
+            const rightMap = new Map();
+            rightLines.forEach((l, i) => {
+                const trimmed = l.trim();
+                if (trimmed.length > 0) { 
+                    const hash = cyrb53(trimmed);
+                    if (!rightMap.has(hash)) rightMap.set(hash, []);
+                    rightMap.get(hash).push(i);
+                }
+            });
+
+            const rawBlocks = [];
+            let i = 0;
+            while (i < leftLines.length) {
+                const lineTrimmed = leftLines[i].trim();
+                if (lineTrimmed.length === 0) { i++; continue; }
+                const hash = cyrb53(lineTrimmed);
+                if (rightMap.has(hash)) {
+                    const rightMatches = rightMap.get(hash);
+                    let rStart = rightMatches[0]; 
+                    let blockLength = 1;
+                    while (i + blockLength < leftLines.length && rStart + blockLength < rightLines.length) {
+                        if (leftLines[i + blockLength].trim() === rightLines[rStart + blockLength].trim()) blockLength++;
+                        else break;
+                    }
+                    if (blockLength >= 1) {
+                        rawBlocks.push({ leftStart: i, leftEnd: i + blockLength, rightStart: rStart, rightEnd: rStart + blockLength });
+                        i += blockLength; 
+                    } else { i++; }
+                } else { i++; }
+            }
+
+            rawBlocks.sort((a,b) => a.leftStart - b.leftStart);
+            let linearBlocks = []; let lastRightEnd = -1;
+            for(let b of rawBlocks) {
+                if (b.rightStart > lastRightEnd) { linearBlocks.push(b); lastRightEnd = b.rightEnd - 1; }
+            }
+            linearBlocks.unshift({ leftStart: 0, leftEnd: 0, rightStart: 0, rightEnd: 0 });
+            linearBlocks.push({ leftStart: leftLines.length, leftEnd: leftLines.length, rightStart: rightLines.length, rightEnd: rightLines.length });
+
+            globalGaps = []; 
+            for(let k=0; k<linearBlocks.length - 1; k++) {
+                let curr = linearBlocks[k]; let next = linearBlocks[k+1];
+                let lStart = curr.leftEnd; let lEnd = next.leftStart;
+                let rStart = curr.rightEnd; let rEnd = next.rightStart;
+                if (lStart < lEnd || rStart < rEnd) {
+                    globalGaps.push({ leftStart: lStart, leftEnd: lEnd, rightStart: rStart, rightEnd: rEnd });
+                }
+            }
+
+            if(globalGaps.length > 0) {
+                if(currentGapIndex === -1 || currentGapIndex >= globalGaps.length) currentGapIndex = 0;
+                diffCounter.innerText = `${currentGapIndex + 1} / ${globalGaps.length} Diff(s)`;
+            } else {
+                currentGapIndex = -1;
+                diffCounter.innerText = `0 / 0 Diff(s)`;
+            }
+
+            const leftBoxRect = document.getElementById('left-box').getBoundingClientRect();
+            const rightBoxRect = document.getElementById('right-box').getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+            const startX = leftBoxRect.right - canvasRect.left;
+            const endX = rightBoxRect.left - canvasRect.left;
+            const leftOffsetY = leftBoxRect.top - canvasRect.top + HEADER_HEIGHT + PADDING_TOP;
+            const rightOffsetY = rightBoxRect.top - canvasRect.top + HEADER_HEIGHT + PADDING_TOP;
+            const leftScroll = leftArea.scrollTop;
+            const rightScroll = rightArea.scrollTop;
+
+            const leftMatchedSet = new Set();
+            const rightMatchedSet = new Set();
+            for (let block of linearBlocks) {
+                if(block.leftStart !== block.leftEnd) {
+                    for(let l = block.leftStart; l < block.leftEnd; l++) leftMatchedSet.add(l);
+                    for(let r = block.rightStart; r < block.rightEnd; r++) rightMatchedSet.add(r);
+                }
+            }
+
+            for(let lineIdx = 0; lineIdx < leftLines.length; lineIdx++) {
+                const y_top = leftOffsetY + (lineIdx * LINE_HEIGHT) - leftScroll;
+                if(y_top + LINE_HEIGHT < 0 || y_top > canvas.height) continue;
+                let bgColor = leftMatchedSet.has(lineIdx) 
+                    ? 'rgba(46, 160, 67, 0.35)'
+                    : 'rgba(88, 166, 255, 0.25)';
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(leftBoxRect.left - canvasRect.left, y_top, leftBoxRect.width, LINE_HEIGHT);
+            }
+
+            for(let lineIdx = 0; lineIdx < rightLines.length; lineIdx++) {
+                const y_top = rightOffsetY + (lineIdx * LINE_HEIGHT) - rightScroll;
+                if(y_top + LINE_HEIGHT < 0 || y_top > canvas.height) continue;
+                let bgColor = rightMatchedSet.has(lineIdx) 
+                    ? 'rgba(46, 160, 67, 0.35)' 
+                    : 'rgba(88, 166, 255, 0.25)';
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(rightBoxRect.left - canvasRect.left, y_top, rightBoxRect.width, LINE_HEIGHT);
+            }
+
+            for(let block of linearBlocks) {
+                if(block.leftStart === block.leftEnd) continue;
+                const y1_s = leftOffsetY + (block.leftStart * LINE_HEIGHT) - leftScroll;
+                const y1_e = leftOffsetY + (block.leftEnd * LINE_HEIGHT) - leftScroll;
+                const y2_s = rightOffsetY + (block.rightStart * LINE_HEIGHT) - rightScroll;
+                const y2_e = rightOffsetY + (block.rightEnd * LINE_HEIGHT) - rightScroll;
+                drawBlockConnection(startX, endX, y1_s, y1_e, y2_s, y2_e, 'rgba(88,166,255,0.08)', 'rgba(88,166,255,0.4)');
+            }
+
+            globalGaps.forEach(gap => {
+                const y1_s = leftOffsetY + (gap.leftStart * LINE_HEIGHT) - leftScroll;
+                const y1_e = leftOffsetY + (gap.leftEnd * LINE_HEIGHT) - leftScroll;
+                const y2_s = rightOffsetY + (gap.rightStart * LINE_HEIGHT) - rightScroll;
+                const y2_e = rightOffsetY + (gap.rightEnd * LINE_HEIGHT) - rightScroll;
+
+                if (gap.leftStart < gap.leftEnd) {
+                    const h = Math.max(LINE_HEIGHT, y1_e - y1_s);
+                    const rectLeft = leftBoxRect.left - canvasRect.left;
+                    ctx.fillStyle = 'var(--diff-red)'; ctx.fillRect(rectLeft, y1_s, leftBoxRect.width, h);
+                    ctx.fillStyle = 'var(--diff-red-solid)'; ctx.fillRect(rectLeft, y1_s, 5, h);
+                }
+                if (gap.rightStart < gap.rightEnd) {
+                    const h = Math.max(LINE_HEIGHT, y2_e - y2_s);
+                    const rectLeft = rightBoxRect.left - canvasRect.left;
+                    ctx.fillStyle = 'var(--diff-green)'; ctx.fillRect(rectLeft, y2_s, rightBoxRect.width, h);
+                    ctx.fillStyle = 'var(--diff-green-solid)'; ctx.fillRect(rectLeft, y2_s, 5, h);
+                }
+
+                drawBlockConnection(startX, endX, y1_s, Math.max(y1_s + 2, y1_e), y2_s, Math.max(y2_s + 2, y2_e), 'rgba(244, 67, 54, 0.1)', 'rgba(244, 87, 74, 0.5)');
+
+                const centerLeftY = (y1_s + Math.max(y1_s, y1_e)) / 2;
+                const centerRightY = (y2_s + Math.max(y2_s, y2_e)) / 2;
+                const buttonCenterY = (centerLeftY + centerRightY) / 2;
+
+                if (buttonCenterY > 20 && buttonCenterY < canvas.height - 20) {
+                    let btnGroup = document.createElement('div');
+                    btnGroup.className = 'merge-btns'; 
+                    btnGroup.style.top = buttonCenterY + 'px';
+
+                    let btnL2R = document.createElement('button'); 
+                    btnL2R.innerHTML = '►';
+                    btnL2R.onclick = () => executeMerge('L2R', gap, leftLines.slice(), rightLines.slice());
+                    btnL2R.onmouseenter = (e) => showTooltip(e, leftLines.slice(gap.leftStart, gap.leftEnd).join('\n'));
+                    btnL2R.onmouseleave = hideTooltip;
+
+                    let btnR2L = document.createElement('button'); 
+                    btnR2L.innerHTML = '◄';
+                    btnR2L.onclick = () => executeMerge('R2L', gap, leftLines.slice(), rightLines.slice());
+                    btnR2L.onmouseenter = (e) => showTooltip(e, rightLines.slice(gap.rightStart, gap.rightEnd).join('\n'));
+                    btnR2L.onmouseleave = hideTooltip;
+
+                    btnGroup.appendChild(btnL2R); 
+                    btnGroup.appendChild(btnR2L); 
+                    buttonLayer.appendChild(btnGroup);
+                }
+            });
+        }
+
+        function drawBlockConnection(x1, x2, y1_top, y1_bottom, y2_top, y2_bottom, fillColor, strokeColor) {
+            const cpOffset = (x2 - x1) * 0.4; 
+            ctx.beginPath(); 
+            ctx.moveTo(x1, y1_top); 
+            ctx.bezierCurveTo(x1 + cpOffset, y1_top, x2 - cpOffset, y2_top, x2, y2_top);
+            ctx.lineTo(x2, y2_bottom); 
+            ctx.bezierCurveTo(x2 - cpOffset, y2_bottom, x1 + cpOffset, y1_bottom, x1, y1_bottom);
+            ctx.closePath(); 
+            ctx.fillStyle = fillColor; 
+            ctx.fill();
+            
+            ctx.strokeStyle = strokeColor; 
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); 
+            ctx.moveTo(x1, y1_top); 
+            ctx.bezierCurveTo(x1 + cpOffset, y1_top, x2 - cpOffset, y2_top, x2, y2_top); 
+            ctx.stroke();
+            ctx.beginPath(); 
+            ctx.moveTo(x1, y1_bottom); 
+            ctx.bezierCurveTo(x1 + cpOffset, y1_bottom, x2 - cpOffset, y2_bottom, x2, y2_bottom); 
+            ctx.stroke();
+        }
+
+        let isSyncingLeftScroll = false, isSyncingRightScroll = false;
+
+        leftArea.addEventListener('scroll', function() {
+            if (!isSyncingLeftScroll) { isSyncingRightScroll = true; rightArea.scrollTop = this.scrollTop; }
+            isSyncingLeftScroll = false; 
+            analyzeAndRender();
+        });
+
+        rightArea.addEventListener('scroll', function() {
+            if (!isSyncingRightScroll) { isSyncingLeftScroll = true; leftArea.scrollTop = this.scrollTop; }
+            isSyncingRightScroll = false; 
+            analyzeAndRender();
+        });
+
+        window.addEventListener('resize', () => analyzeAndRender());
+        leftArea.addEventListener('input', () => { analyzeAndRender(); });
+        rightArea.addEventListener('input', () => { analyzeAndRender(); });
+        
+        setTimeout(() => { 
+            analyzeAndRender(); 
+            addLog("Bereit. Gleiche Zeilen = grün, Unterschiede = hellblau. Speichern: unverändert → Originalname, geändert → _edited");
+        }, 150);
+    </script>
+</body>
+</html>

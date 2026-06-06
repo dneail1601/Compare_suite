@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Beyond Logic Pro · Smart Hex Compare</title>
+    <style>
+        :root {
+            --bg-color: #0d1117; --panel-bg: #161b22; --accent: #238636;
+            --text-color: #c9d1d9; --border: #30363d; --blue-glow: #00f2ff;
+            --match-green: #7ee787; --diff-blue: rgba(88, 166, 255, 0.3);
+            --diff-blue-solid: rgba(0, 242, 255, 0.8);
+            --hex-font: 'Consolas', 'Courier New', monospace;
+            --hex-col-width: 800px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; background-color: var(--bg-color); color: var(--text-color); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        nav { flex: 0 0 auto; background-color: #010409; padding: 12px 20px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid var(--border); z-index: 20; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        button.nav-btn { background-color: var(--panel-bg); color: var(--text-color); border: 1px solid var(--border); padding: 7px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; transition: 0.2s; }
+        button.nav-btn:hover { border-color: var(--blue-glow); color: #fff; box-shadow: 0 0 8px rgba(0, 242, 255, 0.4); }
+        select { background: var(--panel-bg); color: #fff; border: 1px solid var(--border); padding: 6px; border-radius: 4px; font-weight: bold; font-size: 12px; outline: none; }
+
+        #workspace { flex: 1 1 0; min-height: 0; display: flex; position: relative; padding: 15px; gap: 30px; }
+        .editor-container { flex: 1; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 10px; border: 1px solid var(--blue-glow); box-shadow: 0 0 10px rgba(0, 242, 255, 0.15); overflow: hidden; z-index: 2; }
+        .header { flex: 0 0 auto; background: #21262d; padding: 8px 15px; font-size: 12px; font-weight: bold; color: #8b949e; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+        
+        .hex-view { flex: 1 1 0; background: rgba(13, 17, 23, 0.8); color: #8b949e; padding: 15px; font-family: var(--hex-font); font-size: 13px; line-height: 20px; overflow-y: scroll; white-space: pre; outline: none; }
+        
+        .hex-view::-webkit-scrollbar, #log-area::-webkit-scrollbar { width: 12px; height: 12px; }
+        .hex-view::-webkit-scrollbar-track, #log-area::-webkit-scrollbar-track { background: var(--bg-color); }
+        .hex-view::-webkit-scrollbar-thumb, #log-area::-webkit-scrollbar-thumb { background: #424242; border-radius: 6px; border: 3px solid var(--bg-color); }
+        .hex-view::-webkit-scrollbar-thumb:hover, #log-area::-webkit-scrollbar-thumb:hover { background: #666; }
+
+        span.addr { color: #6e7681; padding-right: 15px; border-right: 1px solid #30363d; margin-right: 15px; user-select: none; }
+        span.match { color: var(--match-green); }
+        span.diff { color: #fff; background-color: var(--diff-blue); border-radius: 2px; text-shadow: 0 0 4px var(--blue-glow); }
+        
+        .hex-col { display: inline-block; margin-right: 15px; min-width: var(--hex-col-width); }
+        .ascii-col { display: inline-block; }
+
+        /* Das interaktive Byte-Element */
+        b { font-weight: normal; cursor: crosshair; display: inline-block; }
+        b:hover { background-color: #fff; color: #000; border-radius: 2px; text-shadow: none; }
+
+        #canvas-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+        
+        #log-area { flex: 0 0 120px; margin: 0 15px 15px 15px; background: #010409; color: #3fb950; padding: 10px 15px; border-radius: 8px; font-family: var(--hex-font); overflow-y: auto; font-size: 12px; border: 1px solid var(--border); }
+        #log-area div { border-bottom: 1px solid #21262d; padding: 4px 0; }
+
+        /* Das Inspector HUD */
+        #inspector-hud {
+            position: fixed; display: none; background: rgba(1, 4, 9, 0.95); border: 1px solid var(--blue-glow);
+            color: #c9d1d9; padding: 15px; border-radius: 8px; box-shadow: 0 8px 32px rgba(0, 242, 255, 0.3);
+            font-family: var(--hex-font); font-size: 13px; z-index: 9999; pointer-events: none;
+            backdrop-filter: blur(5px); min-width: 180px;
+        }
+        .hud-large { font-size: 36px; text-align: center; color: var(--blue-glow); font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #30363d; padding-bottom: 10px; text-shadow: 0 0 10px rgba(0, 242, 255, 0.5); }
+        .hud-row { display: flex; justify-content: space-between; margin-bottom: 5px; gap: 20px; }
+        .hud-label { color: #8b949e; }
+        .hud-val { color: #fff; font-weight: bold; }
+        .hud-file { font-size: 11px; text-align: center; color: #7ee787; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+
+    </style>
+</head>
+<body>
+
+    <nav>
+        <button class="nav-btn" onclick="document.getElementById('fileA').click()">📁 Binärdatei A</button>
+        <button class="nav-btn" onclick="document.getElementById('fileB').click()">📁 Binärdatei B</button>
+        <input type="file" id="fileA" style="display:none" onchange="loadBinaryFile(event, 'left')">
+        <input type="file" id="fileB" style="display:none" onchange="loadBinaryFile(event, 'right')">
+        
+        <div style="width: 1px; height: 20px; background: #30363d; margin: 0 10px;"></div>
+        
+        <label style="font-size: 12px; color: #8b949e;">Darstellung:</label>
+        <select id="bytesPerRow" onchange="renderViews()">
+            <option value="16">16 Bytes</option>
+            <option value="32" selected>32 Bytes</option>
+            <option value="64">64 Bytes</option>
+        </select>
+        
+        <button class="nav-btn" onclick="runBinaryDiff()" style="background-color: #238636; color: white; border-color: #2ea043; margin-left: 20px;">
+            <span style="font-size: 14px;">⚡</span> Hex-Analyse & Offset-Scan starten
+        </button>
+		<button class="nav-btn" onclick="window.location.href='Suite_index.html'" style="border-color: var(--blue);">🏠 Zur Zentrale</button>
+    </nav>
+
+    <div id="workspace">
+        <canvas id="canvas-layer"></canvas>
+        <div class="editor-container" id="left-box">
+            <div class="header">📄 <span id="leftName">Datei A</span> <span style="color:#58a6ff" id="leftSize">0 Bytes</span></div>
+            <div id="leftHex" class="hex-view" onscroll="drawConnections()"></div>
+        </div>
+        <div class="editor-container" id="right-box">
+            <div class="header">📄 <span id="rightName">Datei B</span> <span style="color:#58a6ff" id="rightSize">0 Bytes</span></div>
+            <div id="rightHex" class="hex-view" onscroll="drawConnections()"></div>
+        </div>
+    </div>
+
+    <div id="log-area">--- Beyond Logic Hex-Engine (System bereit) ---</div>
+
+    <div id="inspector-hud">
+        <div id="hud-file" class="hud-file">DATEI A</div>
+        <div id="hud-hex" class="hud-large">00</div>
+        <div class="hud-row"><span class="hud-label">Addr:</span> <span class="hud-val" id="hud-addr">0x00000000</span></div>
+        <div class="hud-row"><span class="hud-label">Dec:</span> <span class="hud-val" id="hud-dec">0</span></div>
+        <div class="hud-row"><span class="hud-label">Bin:</span> <span class="hud-val" id="hud-bin">00000000</span></div>
+        <div class="hud-row"><span class="hud-label">ASCII:</span> <span class="hud-val" id="hud-asc">.</span></div>
+    </div>
+
+    <script>
+        let bufferA = new Uint8Array();
+        let bufferB = new Uint8Array();
+        let matchA = new Uint8Array();
+        let matchB = new Uint8Array();
+        let blocks = []; 
+        let gaps = [];
+
+        function addLog(msg) {
+            const time = new Date().toLocaleTimeString('de-DE');
+            const log = document.getElementById('log-area');
+            log.innerHTML += `<div><span style="color:#58a6ff;">[${time}]</span> ${msg}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function loadBinaryFile(event, side) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arr = new Uint8Array(e.target.result);
+                // DYNAMISCHER DATEINAME:
+                const displayName = file.name;
+                if (side === 'left') {
+                    bufferA = arr; matchA = new Uint8Array(arr.length);
+                    document.getElementById('leftName').innerText = displayName;
+                    document.getElementById('leftSize').innerText = arr.length + " Bytes";
+                } else {
+                    bufferB = arr; matchB = new Uint8Array(arr.length);
+                    document.getElementById('rightName').innerText = displayName;
+                    document.getElementById('rightSize').innerText = arr.length + " Bytes";
+                }
+                addLog(`📁 Datei geladen: ${displayName}`);
+                renderViews();
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = '';
+        }
+
+        const toHex = (b) => b.toString(16).padStart(2, '0').toUpperCase();
+        const toAscii = (b) => (b >= 32 && b <= 126) ? String.fromCharCode(b).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])) : '.';
+
+        function generateHexHTML(buffer, matchArray) {
+            const bpr = parseInt(document.getElementById('bytesPerRow').value);
+            let htmlChunks = [];
+            
+            for (let i = 0; i < buffer.length; i += bpr) {
+                let addr = i.toString(16).padStart(8, '0').toUpperCase();
+                htmlChunks.push(`<span class="addr">${addr}</span><span class="hex-col">`);
+                
+                let currentClass = -1;
+                for (let j = 0; j < bpr; j++) {
+                    if (i + j < buffer.length) {
+                        const isMatch = matchArray.length > 0 ? matchArray[i + j] : 0;
+                        if (isMatch !== currentClass) {
+                            if (currentClass !== -1) htmlChunks.push(`</span>`);
+                            htmlChunks.push(`<span class="${isMatch ? 'match' : 'diff'}">`);
+                            currentClass = isMatch;
+                        }
+                        // Der Anker <b> für den Inspector
+                        htmlChunks.push(`<b data-i="${i+j}">${toHex(buffer[i + j])}</b> `);
+                    } else {
+                        if (currentClass !== -1) { htmlChunks.push(`</span>`); currentClass = -1; }
+                        htmlChunks.push('   ');
+                    }
+                }
+                if (currentClass !== -1) htmlChunks.push(`</span>`);
+                
+                htmlChunks.push(`</span><span class="ascii-col">`);
+                currentClass = -1;
+                for (let j = 0; j < bpr; j++) {
+                    if (i + j < buffer.length) {
+                        const isMatch = matchArray.length > 0 ? matchArray[i + j] : 0;
+                        if (isMatch !== currentClass) {
+                            if (currentClass !== -1) htmlChunks.push(`</span>`);
+                            htmlChunks.push(`<span class="${isMatch ? 'match' : 'diff'}">`);
+                            currentClass = isMatch;
+                        }
+                        htmlChunks.push(`<b data-i="${i+j}">${toAscii(buffer[i + j])}</b>`);
+                    }
+                }
+                if (currentClass !== -1) htmlChunks.push(`</span>`);
+                htmlChunks.push(`</span>\n`);
+            }
+            return htmlChunks.join('');
+        }
+
+        function renderViews() {
+            const bpr = parseInt(document.getElementById('bytesPerRow').value);
+            document.documentElement.style.setProperty('--hex-col-width', (bpr * 25) + 'px');
+
+            document.getElementById('leftHex').innerHTML = generateHexHTML(bufferA, matchA);
+            document.getElementById('rightHex').innerHTML = generateHexHTML(bufferB, matchB);
+            
+            setTimeout(drawConnections, 50); 
+        }
+
+        // --- HUD Inspector Logic ---
+        // --- HUD Inspector Logic ---
+const hud = document.getElementById('inspector-hud');
+
+function handleHover(e, buffer, fileName) {
+    if (e.target.tagName === 'B' && e.target.dataset.i) {
+        const idx = parseInt(e.target.dataset.i);
+        if (idx >= buffer.length) return;
+        const val = buffer[idx];
+
+        // DYNAMISCHER NAME: Hier nutzen wir den übergebenen fileName
+        document.getElementById('hud-file').innerText = fileName; 
+        
+        document.getElementById('hud-hex').innerText = toHex(val);
+        document.getElementById('hud-addr').innerText = '0x' + idx.toString(16).padStart(8, '0').toUpperCase();
+        document.getElementById('hud-dec').innerText = val.toString(10);
+        document.getElementById('hud-bin').innerText = val.toString(2).padStart(8, '0');
+        
+        let asc = (val >= 32 && val <= 126) ? String.fromCharCode(val) : '.';
+        document.getElementById('hud-asc').innerText = asc;
+
+        let x = e.clientX + 20;
+        let y = e.clientY + 20;
+        if (x + 200 > window.innerWidth) x = e.clientX - 220;
+        if (y + 180 > window.innerHeight) y = e.clientY - 180;
+        
+        hud.style.left = x + 'px';
+        hud.style.top = y + 'px';
+        hud.style.display = 'block';
+    } else {
+        hud.style.display = 'none';
+    }
+}
+
+// Event-Listener mit den korrekten Namen aus dem DOM
+document.getElementById('leftHex').addEventListener('mousemove', (e) => 
+    handleHover(e, bufferA, document.getElementById('leftName').innerText));
+    
+document.getElementById('rightHex').addEventListener('mousemove', (e) => 
+    handleHover(e, bufferB, document.getElementById('rightName').innerText));
+
+document.getElementById('leftHex').addEventListener('mouseleave', () => hud.style.display = 'none');
+document.getElementById('rightHex').addEventListener('mouseleave', () => hud.style.display = 'none');
+
+
+        // --- Die Kern-Innovation: Signatur-Scanner ---
+        function findPattern(buffer, pattern, startIdx, maxLookahead) {
+            const end = Math.min(buffer.length - pattern.length, startIdx + maxLookahead);
+            for (let i = startIdx; i <= end; i++) {
+                if (buffer[i] === pattern[0]) {
+                    let isMatch = true;
+                    for (let j = 1; j < pattern.length; j++) {
+                        if (buffer[i + j] !== pattern[j]) { isMatch = false; break; }
+                    }
+                    if (isMatch) return i;
+                }
+            }
+            return -1;
+        }
+
+        function findResync(ptrA, ptrB) {
+            const ANCHOR_LEN = 5; 
+            const MAX_SKIP = 4096; 
+            const MAX_LOOKAHEAD = 16384; 
+
+            let bestSkipA = -1, bestSkipB = -1, minCost = Infinity;
+
+            for (let skipA = 0; skipA < MAX_SKIP; skipA++) {
+                if (skipA >= minCost) break; 
+                if (ptrA + skipA + ANCHOR_LEN > bufferA.length) break;
+                
+                const pattern = bufferA.subarray(ptrA + skipA, ptrA + skipA + ANCHOR_LEN);
+                const foundB = findPattern(bufferB, pattern, ptrB, MAX_LOOKAHEAD);
+                
+                if (foundB !== -1) {
+                    const skipB = foundB - ptrB;
+                    if (skipA + skipB < minCost) { minCost = skipA + skipB; bestSkipA = skipA; bestSkipB = skipB; }
+                }
+            }
+
+            for (let skipB = 0; skipB < MAX_SKIP; skipB++) {
+                if (skipB >= minCost) break;
+                if (ptrB + skipB + ANCHOR_LEN > bufferB.length) break;
+                
+                const pattern = bufferB.subarray(ptrB + skipB, ptrB + skipB + ANCHOR_LEN);
+                const foundA = findPattern(bufferA, pattern, ptrA, MAX_LOOKAHEAD);
+                
+                if (foundA !== -1) {
+                    const skipA = foundA - ptrA;
+                    if (skipA + skipB < minCost) { minCost = skipA + skipB; bestSkipA = skipA; bestSkipB = skipB; }
+                }
+            }
+
+            if (bestSkipA !== -1) return { skipA: bestSkipA, skipB: bestSkipB };
+            return null;
+        }
+
+        function runBinaryDiff() {
+            if(bufferA.length === 0 || bufferB.length === 0) { addLog("Fehler: Bitte lade zuerst beide Dateien."); return; }
+            addLog("Starte Byte-Level Diff mit Signatur-Scanner...");
+            
+            matchA.fill(0); matchB.fill(0);
+            blocks = []; gaps = [];
+            let ptrA = 0, ptrB = 0;
+
+            while (ptrA < bufferA.length && ptrB < bufferB.length) {
+                if (bufferA[ptrA] === bufferB[ptrB]) {
+                    let startA = ptrA, startB = ptrB;
+                    while (ptrA < bufferA.length && ptrB < bufferB.length && bufferA[ptrA] === bufferB[ptrB]) {
+                        matchA[ptrA] = 1; matchB[ptrB] = 1;
+                        ptrA++; ptrB++;
+                    }
+                    blocks.push({ startA, endA: ptrA, startB, endB: ptrB });
+                } else {
+                    const resync = findResync(ptrA, ptrB);
+                    if (resync) {
+                        ptrA += resync.skipA; ptrB += resync.skipB;
+                    } else {
+                        ptrA++; ptrB++;
+                    }
+                }
+            }
+
+            let lastA = 0, lastB = 0;
+            for(let b of blocks) {
+                if(lastA < b.startA || lastB < b.startB) { gaps.push({ a1: lastA, a2: b.startA, b1: lastB, b2: b.startB }); }
+                lastA = b.endA; lastB = b.endB;
+            }
+            if(lastA < bufferA.length || lastB < bufferB.length) {
+                gaps.push({ a1: lastA, a2: bufferA.length, b1: lastB, b2: bufferB.length });
+            }
+
+            addLog(`Scan beendet! ${blocks.length} intakte Blöcke und ${gaps.length} Offsets identifiziert.`);
+            renderViews();
+        }
+
+        // --- Canvas Rendering ---
+        function drawConnections() {
+            const canvas = document.getElementById('canvas-layer');
+            const ctx = canvas.getContext('2d');
+            const wsRect = document.getElementById('workspace').getBoundingClientRect();
+            canvas.width = wsRect.width; canvas.height = wsRect.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const bpr = parseInt(document.getElementById('bytesPerRow').value);
+            const LINE_HEIGHT = 20; const PADDING_TOP = 15;
+            
+            const leftBox = document.getElementById('left-box').getBoundingClientRect();
+            const rightBox = document.getElementById('right-box').getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+            
+            const startX = leftBox.right - canvasRect.left;
+            const endX = rightBox.left - canvasRect.left;
+            
+            const headerHeight = document.querySelector('.header').offsetHeight;
+            const scrollA = document.getElementById('leftHex').scrollTop;
+            const scrollB = document.getElementById('rightHex').scrollTop;
+
+            blocks.forEach(b => {
+                if ((b.endA - b.startA) > 4) { 
+                    const rowStartA = Math.floor(b.startA / bpr); const rowEndA = Math.floor(b.endA / bpr);
+                    const rowStartB = Math.floor(b.startB / bpr); const rowEndB = Math.floor(b.endB / bpr);
+                    
+                    const y1_s = headerHeight + PADDING_TOP + (rowStartA * LINE_HEIGHT) - scrollA;
+                    const y1_e = headerHeight + PADDING_TOP + ((rowEndA + 1) * LINE_HEIGHT) - scrollA;
+                    const y2_s = headerHeight + PADDING_TOP + (rowStartB * LINE_HEIGHT) - scrollB;
+                    const y2_e = headerHeight + PADDING_TOP + ((rowEndB + 1) * LINE_HEIGHT) - scrollB;
+                    
+                    if (y1_e > 0 && y1_s < canvas.height && y2_e > 0 && y2_s < canvas.height) {
+                        drawBezier(ctx, startX, endX, y1_s, y1_e, y2_s, y2_e, 'rgba(126, 231, 135, 0.05)', 'rgba(126, 231, 135, 0.2)');
+                    }
+                }
+            });
+
+            gaps.forEach(g => {
+                const rowStartA = Math.floor(g.a1 / bpr); const rowEndA = Math.floor(g.a2 / bpr);
+                const rowStartB = Math.floor(g.b1 / bpr); const rowEndB = Math.floor(g.b2 / bpr);
+                
+                const y1_s = headerHeight + PADDING_TOP + (rowStartA * LINE_HEIGHT) - scrollA;
+                const y1_e = headerHeight + PADDING_TOP + ((rowEndA + 1) * LINE_HEIGHT) - scrollA;
+                const y2_s = headerHeight + PADDING_TOP + (rowStartB * LINE_HEIGHT) - scrollB;
+                const y2_e = headerHeight + PADDING_TOP + ((rowEndB + 1) * LINE_HEIGHT) - scrollB;
+                
+                if (y1_e > 0 && y1_s < canvas.height && y2_e > 0 && y2_s < canvas.height) {
+                    let e1 = Math.max(y1_s + 2, y1_e); let e2 = Math.max(y2_s + 2, y2_e);
+                    drawBezier(ctx, startX, endX, y1_s, e1, y2_s, e2, 'rgba(0, 242, 255, 0.1)', 'rgba(0, 242, 255, 0.6)');
+                }
+            });
+        }
+
+        function drawBezier(ctx, x1, x2, y1_s, y1_e, y2_s, y2_e, fill, stroke) {
+            const cp = (x2 - x1) * 0.4; 
+            ctx.beginPath(); ctx.moveTo(x1, y1_s); ctx.bezierCurveTo(x1 + cp, y1_s, x2 - cp, y2_s, x2, y2_s);
+            ctx.lineTo(x2, y2_e); ctx.bezierCurveTo(x2 - cp, y2_e, x1 + cp, y1_e, x1, y1_e);
+            ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+            ctx.strokeStyle = stroke; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(x1, y1_s); ctx.bezierCurveTo(x1 + cp, y1_s, x2 - cp, y2_s, x2, y2_s); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x1, y1_e); ctx.bezierCurveTo(x1 + cp, y1_e, x2 - cp, y2_e, x2, y2_e); ctx.stroke();
+        }
+
+        window.addEventListener('resize', drawConnections);
+    </script>
+</body>
+</html>

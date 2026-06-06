@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <style>
+        body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .grid { display: grid; grid-template-columns: repeat(2, 250px); gap: 20px; }
+        .card { background: #161b22; padding: 30px; border: 1px solid #30363d; border-radius: 12px; text-align: center; cursor: pointer; transition: 0.2s; }
+        .card:hover { border-color: #58a6ff; transform: scale(1.05); }
+        h1 { margin-bottom: 50px; color: #58a6ff; }
+    </style>
+</head>
+<body>
+    <h1>Beyond Logic Workbench</h1>
+    <div class="grid">
+        <div class="card" onclick="location.href='Diff7.html'">📄 Text Diff</div>
+        <div class="card" onclick="location.href='Hex_compare.html'">⚙️ Hex Compare</div>
+        <div class="card" onclick="location.href='JSON_Compare3.html'">🔍 JSON Tree</div>
+        <div class="card" onclick="location.href='Recursive_grep.html'">🔍 Grep Tool</div>
+    </div>
+</body>
+</html>

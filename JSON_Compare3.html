@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <style>
+        :root { --bg: #0d1117; --panel: #161b22; --border: #30363d; --blue: #58a6ff; --green: #238636; --red: #da3633; }
+        body { background: var(--bg); color: #c9d1d9; font-family: 'Consolas', monospace; height: 100vh; margin: 0; display: flex; flex-direction: column; }
+        nav { background: #010409; padding: 10px 20px; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; }
+        .workspace { flex: 1; display: flex; overflow: hidden; padding: 15px; gap: 15px; }
+        .tree { flex: 1; overflow-y: auto; background: var(--panel); border: 1px solid #30363d; border-radius: 6px; padding: 10px; }
+        .node { margin-left: 15px; padding: 2px 5px; cursor: pointer; border-left: 2px solid transparent; }
+        .toggle { color: var(--blue); width: 15px; display: inline-block; font-weight: bold; }
+        .match { border-left-color: var(--green); background: rgba(35, 134, 54, 0.1); }
+        .diff { border-left-color: var(--red); background: rgba(218, 54, 51, 0.1); }
+        #log { flex: 0 0 100px; margin: 0 15px 15px; background: #000; color: #0f0; padding: 10px; font-size: 11px; border: 1px solid #30363d; overflow-y: auto; }
+        button { background: var(--panel); color: white; border: 1px solid var(--border); padding: 5px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <nav>
+        <button onclick="window.location.href='Suite_index.html'">🏠 Zentrale</button>
+        <button onclick="load('left')">📂 JSON A</button>
+        <button onclick="load('right')">📂 JSON B</button>
+        <button onclick="compareTopLevel()" style="background:var(--blue); color:black;">⚡ Vergleich</button>
+        <button onclick="exportLog()" style="background:var(--green)">📋 Report kopieren</button>
+    </nav>
+    <div class="workspace">
+        <div class="tree" id="leftTree"></div>
+        <div class="tree" id="rightTree"></div>
+    </div>
+    <div id="log">--- JSON-Engine bereit ---</div>
+
+    <script>
+        let jA, jB;
+        const logEl = document.getElementById('log');
+
+        function log(m) { 
+            logEl.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${m}</div>`; 
+            logEl.scrollTop = logEl.scrollHeight; 
+        }
+
+        function exportLog() {
+            navigator.clipboard.writeText(logEl.innerText);
+            log("Report in Zwischenablage kopiert!");
+        }
+
+        function load(side) {
+            const input = document.createElement('input'); input.type = 'file';
+            input.onchange = e => {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        if(side === 'left') { jA = data; renderTree('leftTree', data, 'root'); }
+                        else { jB = data; renderTree('rightTree', data, 'root'); }
+                        log(side.toUpperCase() + " geladen.");
+                    } catch(err) { log("FEHLER: Ungültiges JSON"); }
+                };
+                reader.readAsText(e.target.files[0]);
+            };
+            input.click();
+        }
+
+        function renderTree(id, obj, path) {
+            const container = document.getElementById(id);
+            container.innerHTML = '';
+            for(let key in obj) container.appendChild(buildNode(path + '.' + key, obj[key]));
+        }
+
+        function buildNode(path, val) {
+            const div = document.createElement('div');
+            div.className = 'node';
+            div.dataset.path = path;
+            const isObj = typeof val === 'object' && val !== null;
+            div.innerHTML = `<span class="toggle">${isObj ? '▼' : '•'}</span> <span>${path.split('.').pop()}: ${isObj ? '' : val}</span>`;
+            
+            if(isObj) {
+                div.querySelector('.toggle').onclick = (e) => {
+                    e.stopPropagation();
+                    const children = div.querySelectorAll(':scope > .child');
+                    const hidden = children[0] && children[0].style.display === 'none';
+                    children.forEach(c => c.style.display = hidden ? 'block' : 'none');
+                    div.querySelector('.toggle').innerText = hidden ? '▼' : '▶';
+                    log("Struktur: " + path + (hidden ? " expandiert" : " kollabiert"));
+                };
+                for(let k in val) {
+                    const child = buildNode(path + '.' + k, val[k]);
+                    child.className += ' child';
+                    div.appendChild(child);
+                }
+            }
+            return div;
+        }
+
+        function compareTopLevel() {
+            log("Vergleiche Top-Ebene...");
+            const keys = new Set([...Object.keys(jA||{}), ...Object.keys(jB||{})]);
+            keys.forEach(k => {
+                const elA = document.querySelector(`#leftTree [data-path="root.${k}"]`);
+                const elB = document.querySelector(`#rightTree [data-path="root.${k}"]`);
+                if(elA && elB) {
+                    const match = JSON.stringify(jA[k]) === JSON.stringify(jB[k]);
+                    elA.className = 'node ' + (match ? 'match' : 'diff');
+                    elB.className = 'node ' + (match ? 'match' : 'diff');
+                    if(!match) log("Differenz bei: " + k);
+                }
+            });
+            log("Vergleich abgeschlossen.");
+        }
+    </script>
+</body>
+</html>
